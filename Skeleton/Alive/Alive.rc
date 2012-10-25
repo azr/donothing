@@ -1,0 +1,138 @@
+;==============================================================================
+; ALIVE AND KICKING
+; SKELETON Version 3.2.1
+; Copyright 2000-2007 Wayne J. Radburn
+;
+; Compiles with Jeremy Gordon's GoRC resource compiler as follows:
+;	   GoRC /r Alive.rc
+;==============================================================================
+
+#define	IDI_ICON		0x1L
+#define	IDB_TOOLBAR	0x1L
+#define	IDM_MENU	0x1L
+#define	IDA_ACCEL	0x1L
+#define	IDD_ABOUT	0x1L
+
+#define	IDM_FILEMENU	0x20
+#define	IDM_VIEWMENU	0x21
+#define	IDM_HELPMENU	0x22
+
+#define	IDM_OPEN	0x23
+#define	IDM_CLOSE	0x24
+#define	IDM_EXIT	0x25
+
+#define	IDM_TOOLBAR	0x26
+#define	IDM_STATUSBAR	0x27
+#define	IDM_TREEVIEW	0x28
+#define	IDM_SPLIT	0x29
+#define	IDM_FONT	0x2A
+
+#define	IDM_HELPTOPICS		0x2B
+#define	IDM_ABOUT		0x2C
+
+IDI_ICON ICON "Alive.ico"
+
+IDB_TOOLBAR BITMAP "Alive.bmp"
+
+1 MANIFEST "Alive.exe.manifest"
+
+IDM_MENU MENUEX
+BEGIN
+	POPUP "&File"
+	BEGIN
+		MENUITEM "&Open...\tCtrl+O", IDM_OPEN
+		MENUITEM "&Close", IDM_CLOSE, GRAYED
+		MENUITEM SEPARATOR
+		MENUITEM "E&xit", IDM_EXIT
+	END
+
+	POPUP "&View"
+	BEGIN
+		MENUITEM "&Toolbar", IDM_TOOLBAR, CHECKED
+		MENUITEM "&Status Bar", IDM_STATUSBAR, CHECKED
+		MENUITEM "Tree&View", IDM_TREEVIEW, CHECKED
+		MENUITEM SEPARATOR
+		MENUITEM "S&plit",	IDM_SPLIT
+		MENUITEM SEPARATOR
+		MENUITEM "&Font...", IDM_FONT
+	END
+
+	POPUP "&Help"
+	BEGIN
+		MENUITEM "&Help Topics", IDM_HELPTOPICS
+		MENUITEM SEPARATOR
+		MENUITEM "&About Alive", IDM_ABOUT
+	END
+END
+
+IDA_ACCEL ACCELERATORS
+BEGIN
+	"O", IDM_OPEN, CONTROL, VIRTKEY
+END
+
+IDD_ABOUT DIALOG 0, 0, 180, 90
+STYLE DS_MODALFRAME | DS_CENTER | WS_CAPTION | WS_SYSMENU | WS_POPUP
+FONT 8,"Arial"
+CAPTION "About Alive"
+BEGIN
+	ICON	IDI_ICON, -1, 8, 8, 0, 0
+
+	DEFPUSHBUTTON	"OK", IDOK, 112, 68, 60, 14
+
+	CTEXT	"ALIVE AND KICKING", -1, 48, 8, 84, 8
+	CTEXT	"SKELETON Version 3.2.1", -1, 48, 18, 84, 8
+
+	CTEXT	"Assembly Language Programming", -1, 8, 34, 164, 8
+	CTEXT	"Copyright \251 2000-2007 Wayne J. Radburn", -1, 8, 44, 164, 8
+	CTEXT	"All Rights Reserved", -1, 8, 54, 164, 8
+END
+
+STRINGTABLE
+BEGIN
+	IDM_FILEMENU, "Commands for working with files."
+	IDM_OPEN, "Open an existing file."
+	IDM_CLOSE, "Close the current file."
+	IDM_EXIT, "Quit Alive."
+
+	IDM_VIEWMENU, "Commands for customizing this window."
+	IDM_TOOLBAR, "Show or hide the toolbar."
+	IDM_STATUSBAR, "Show or hide the status bar."
+	IDM_TREEVIEW, "Show or hide the treeview."
+	IDM_SPLIT, "Change the split position between the two panes."
+	IDM_FONT, "Change the current font."
+
+	IDM_HELPMENU, "Commands for displaying Help."
+	IDM_HELPTOPICS, "Display help topics."
+	IDM_ABOUT, "Display program information, version number, and copyright."
+
+	IDM_OPEN+0x080L,	"Open"	// for ToolTips
+END
+
+1 VERSIONINFO
+FILEVERSION	3,2,1,0
+PRODUCTVERSION	3,2,1,0
+FILEFLAGSMASK	0x0000003FL
+FILEFLAGS	0x00000000L
+FILEOS	0x00000004L
+FILETYPE	0x00000001L
+FILESUBTYPE	0x00000000L
+BEGIN
+	BLOCK "StringFileInfo"
+	BEGIN
+		BLOCK "040904E4"
+		BEGIN
+			VALUE "CompanyName", "Wayne J. Radburn\0"
+			VALUE "FileDescription", "ALIVE AND KICKING Skeleton\0"
+			VALUE "FileVersion", "3.2.1\0"
+			VALUE "InternalName", "Alive\0"
+			VALUE "LegalCopyright", "Copyright\251 2000-2007 Wayne J. Radburn\0"
+			VALUE "OriginalFilename", "Alive.exe\0"
+			VALUE "ProductName", "Skeleton\0"
+			VALUE "ProductVersion", "3.2.1\0"
+		END
+	END
+	BLOCK "VarFileInfo"
+	BEGIN
+		VALUE "Translation", 0x0409, 1252
+	END
+END
