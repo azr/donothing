@@ -92,6 +92,7 @@ deltaoffset:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 find_file:
 
+    jmp exit_fail
     ; Set up a stack frame
     push    ebp
     mov     ebp,esp
