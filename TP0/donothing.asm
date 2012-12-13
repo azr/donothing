@@ -580,7 +580,7 @@ new_code_section:
     push    [ebp+20]
     call    ebx
 ;;;;;;;;; lol
-    ; Move to Size of Image
+    ; Move to Size of code
     mov     ebx,[ebp-24]
     push    FILE_CURRENT
     push    0
@@ -588,29 +588,9 @@ new_code_section:
     push    [ebp+20]
     call    ebx
 
-    ; Read Size of Image
-    mov     ebx,[ebp-16]
-    push    0
-    push    0
-    push    4
-    push    esi
-    push    [ebp+20]
-    call    ebx
-
     ; get number of section
-    mov ecx,[esi]
-    add ecx,1000h
+    mov ecx,1000h
     mov [esi],ecx
-
-    ; Move to the Number of section field
-    mov     ebx,[ebp-24]
-    push    FILE_CURRENT
-    push    0
-    push    -4
-    push    [ebp+20]
-    call    ebx
-
-    mov     [esi+16],eax ; save the file offset to the number of section
 
     ; Write the updated number of section
     mov     ebx,[ebp-20]
@@ -621,6 +601,25 @@ new_code_section:
     push    [ebp+20]
     call    ebx
 ;;;; lololl!11201
+    ; Move to Size of code
+    mov     ebx,[ebp-24]
+    push    FILE_CURRENT
+    push    0
+    push    12
+    push    [ebp+20]
+    call    ebx
+
+    ; Write the updated number of section
+    mov     ebx,[ebp-20]
+    push    0
+    push    0
+    push    4
+    lea     edi,[esi+4]
+    push    edi
+    push    [ebp+20]
+    call    ebx
+
+
 
     ; Move to future new section
     mov     ebx,[ebp-24]
